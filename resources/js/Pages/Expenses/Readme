@@ -1,0 +1,114 @@
+# Finance pages: Income + Expenses with a shared tab bar
+
+## File placement
+
+```
+resources/js/Components/FinanceTabs.jsx     ← new shared component
+resources/js/Pages/Income/Index.jsx         ← replaces your old "ExpenseIndex" (payments) file
+resources/js/Pages/Expenses/Index.jsx       ← redesigned version of your existing ExpenseIndex
+resources/js/lang/en.json                   ← merge into your existing lang loader
+resources/js/lang/ps.json
+resources/js/lang/fa.json
+```
+
+## ⚠️ One naming mismatch to resolve first
+
+Your original "expense-looking" file actually used:
+- prop `payments`
+- `route('payments.create')`
+- component name `ExpenseIndex`
+
+That's inconsistent with the file's real purpose (it renders income-shaped
+data — just amount + date, no notes field). I renamed the component to
+`IncomeIndex` and pointed its buttons/delete action at `income.*` routes,
+since that's what you said the dashboard should link to (`income.index`).
+
+**Before this works, pick one of two options:**
+
+**Option A — rename your backend routes to match** (recommended, since it's
+what you asked for):
+```php
+// routes/web.php
+Route::resource('income', IncomeController::class);
+Route::resource('expenses', ExpenseController::class);
+```
+
+**Option B — keep `payments.*` as the real route names** and just alias the
+dashboard link:
+```php
+Route::get('/finance/income', fn () => redirect()->route('payments.index'))
+    ->name('income.index');
+```
+Then swap `route('income.create')` / `route('income.destroy', ...)` back to
+`route('payments.create')` / `route('payments.destroy', ...)` inside
+`Income/Index.jsx`.
+
+I'd go with Option A — cleaner long-term, and matches the naming you already
+use for `expenses.*`.
+
+## Dashboard link
+
+Wherever your dashboard currently links to "Expense" or "Income", point both
+at their respective `index` routes directly — the tab bar handles switching
+between them from either page:
+
+```jsx
+<Link href={route('income.index')}>Income</Link>
+<Link href={route('expenses.index')}>Expenses</Link>
+```
+
+## How the tabs work
+
+`FinanceTabs` is not client-side tab-switching — each tab is a real
+`<Link>` to a different Inertia page (`income.index` / `expenses.index`).
+The `active` prop just controls which tab is visually highlighted on
+whichever page you're currently on. This matches what you asked for:
+clicking "Income" navigates to `income.index`, clicking "Expenses"
+navigates to `expenses.index`.
+
+Optional: pass a `totals` prop (`{ income, expense }`) from the controller
+if you want both running totals visible on the tab badges regardless of
+which page you're viewing — otherwise each page just shows its own total.
+
+```php
+// ExpenseController@index
+return Inertia::render('Expenses/Index', [
+    'expenses' => Expense::orderByDesc('date')->get(),
+    'totals' => [
+        'income'  => Payment::sum('amount'),
+        'expense' => Expense::sum('amount'),
+    ],
+]);
+```
+
+## Translation files
+
+These assume your `useTrans` hook reads namespaced JSON like:
+
+```js
+t('finance', 'Income') // -> looks up lang[currentLocale].finance["Income"]
+```
+
+If your `lib/trans.js` loads translations differently (e.g. flat keys, or a
+different folder structure), the JSON *shape* here (`{ "finance": {...},
+"buttons": {...} }`) should still be a straightforward merge — just point
+your loader at these three locale files (`en`, `ps`, `fa`) alongside
+whatever locales you already support.
+
+- `en.json` — English
+- `ps.json` — Pashto (پښتو) — matches the RTL invoice/bill-book language
+  from your printed form
+- `fa.json` — Dari (دری) — Afghanistan's other official language, likely
+  worth having alongside Pashto for the same user base
+
+## Design notes
+
+- Income uses an emerald/green palette, Expenses uses rose/red — consistent
+  with universal "money in / money out" conventions, and it makes the tab
+  bar itself communicate meaning before you even read the labels.
+- Empty states replace a blank table with a small icon + message, so a
+  fresh install doesn't look broken.
+- Summary cards (`Total Income` / `Total Expenses` / `Entries`) give an
+  at-a-glance number without needing to scan the table.
+- All amounts use `Intl.NumberFormat` for consistent decimal formatting
+  and are prefixed with `+` / `-` to reinforce direction at a glance.

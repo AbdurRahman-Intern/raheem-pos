@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@media print {
+    /* Hide layout navigation wrappers generated outside your component */
+    nav,
+    sidebar,
+    footer,
+    .sidebar-wrapper,
+    header {
+        display: none !important;
+    }
+    body {
+        background-color: #ffffff !important;
+    }
+}
