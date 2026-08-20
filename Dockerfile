@@ -41,13 +41,15 @@
 # CMD php artisan migrate --force && service nginx start && php-fpm
 
 
+# Stage 1: Get official Node binaries safely
+FROM node:20-alpine AS node-builder
+
+# Stage 2: Build the core Laravel environment
 FROM php:8.4-fpm
 
-# Fix: Install system dependencies and Node.js 20 using the official script
+# Install standard core system dependencies
 RUN apt-get update && apt-get install -y \
-    git curl libpng-dev libonig-dev libxml2-dev zip unzip nginx \
-    && curl -fsSL https://nodesource.com | bash - \
-    && apt-get install -y nodejs
+    git curl libpng-dev libonig-dev libxml2-dev zip unzip nginx
 
 # Clear cache
 RUN apt-get clean && rm -rf /var/lib/lists/*
@@ -58,17 +60,30 @@ RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
 # Get latest Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
+# Copy Node & NPM binaries directly from Stage 1 (Bypasses APT keyring signature blocks)
+COPY --from=node-builder /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
+
+# Set working directory
 WORKDIR /var/www
+
+# Copy existing application directory
 COPY . /var/www
 
-# Install PHP and React/Inertia dependencies
+# Install PHP dependencies
 RUN composer install --no-interaction --optimize-autoloader --no-dev
+
+# Safely run NPM build now that Node binaries are mapped correctly
 RUN npm install && npm run build
 
-# Config and Permissions
+# Setup Nginx configuration
 COPY ./nginx.conf /etc/nginx/sites-available/default
+
+# Permissions
 RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
 
 EXPOSE 80
 
+# Run migrations automatically and start services
 CMD php artisan migrate --force && service nginx start && php-fpm
