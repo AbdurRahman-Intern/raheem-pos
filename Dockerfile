@@ -47,17 +47,17 @@ FROM node:20-alpine AS node-builder
 # Stage 2: Build the core Laravel environment matching your local PHP 8.4
 FROM php:8.4-fpm
 
-# Install standard core system dependencies
+# Install core system packages AND the required libzip-dev package
 RUN apt-get update && apt-get install -y \
-    git curl libpng-dev libonig-dev libxml2-dev zip unzip nginx
+    git curl libpng-dev libonig-dev libxml2-dev libzip-dev zip unzip nginx
 
 # Clear cache
 RUN apt-get clean && rm -rf /var/lib/lists/*
 
-# Install PHP extensions
-RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
+# Install PHP extensions (Added 'zip' here)
+RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip
 
-# Get latest Composer
+# Get latest Composer tool
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 # Copy Node & NPM binaries directly from Stage 1
@@ -68,13 +68,13 @@ RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && ln -s /usr/local/lib/node
 # Set working directory
 WORKDIR /var/www
 
-# Fix: Explicitly copy your composer files first to optimize layer caching
+# Copy composer maps first to leverage Docker cache rules
 COPY composer.json composer.lock* /var/www/
 
 # Copy the rest of the application files
 COPY . /var/www
 
-# Fix: Added platform bypass flag and verbose handling to suppress the exit code 2 crash
+# Install PHP production dependencies cleanly
 RUN composer install --no-interaction --optimize-autoloader --no-dev --ignore-platform-reqs
 
 # Safely run NPM build
@@ -90,4 +90,5 @@ EXPOSE 80
 
 # Run migrations automatically and start services
 CMD php artisan migrate --force && service nginx start && php-fpm
+
 
