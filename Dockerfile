@@ -99,4 +99,4 @@ RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
 EXPOSE 80
 
 # 9. Run database migrations and start web services
-CMD php artisan migrate --force && service nginx start && php-fpm
+CMD php artisan migrate --force --seed && service nginx start && php-fpm
