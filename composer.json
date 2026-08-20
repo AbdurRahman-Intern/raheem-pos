@@ -12,8 +12,6 @@
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
         "masbug/flysystem-google-drive-ext": "*",
-        "nativephp/desktop": "*",
-        "spatie/laravel-backup": "*",
         "tightenco/ziggy": "^2.0"
     },
     "require-dev": {
