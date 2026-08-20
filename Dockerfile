@@ -41,44 +41,62 @@
 # CMD php artisan migrate --force && service nginx start && php-fpm
 
 
+# ---------------------------------------------------------------
+# Stage 1: Build front-end assets (Node.js) — not shipped to prod
+# ---------------------------------------------------------------
+FROM node:20-slim AS assets
+
+WORKDIR /app
+
+# Leverage layer caching for npm deps
+COPY package.json package-lock.json* ./
+RUN npm install
+
+# Copy the rest of the app needed to build assets (Vite usually needs your PHP/blade files too if using @vite in views, so copy everything)
+COPY . .
+RUN npm run build
+
+
+# ---------------------------------------------------------------
+# Stage 2: PHP application image
+# ---------------------------------------------------------------
 FROM php:8.4-fpm
 
-# 1. Install standard OS dependencies
+# 1. Install OS dependencies
 RUN apt-get update && apt-get install -y \
-    git curl libpng-dev libonig-dev libxml2-dev libzip-dev zip unzip nginx
+    git curl libpng-dev libonig-dev libxml2-dev libzip-dev zip unzip nginx \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# 2. Fix: Download the official Node.js archive file directly to disk FIRST, then extract it cleanly
-RUN curl -fsSL -o /tmp/node.tar.gz https://nodejs.org \
-    && tar -xzf /tmp/node.tar.gz --strip-components=1 -C /usr/local \
-    && rm /tmp/node.tar.gz
-
-# 3. Clean up apt package tables
-RUN apt-get clean && rm -rf /var/lib/lists/*
-
-# 4. Install PHP extensions needed for Laravel and ZipArchive backups
+# 2. Install PHP extensions needed for Laravel and ZipArchive backups
 RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip
 
-# 5. Bring in Composer
+# 3. Bring in Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www
 
-# 6. Copy files and leverage Docker layer cache for dependencies
+# 4. Copy dependency manifests first to leverage Docker layer cache
 COPY composer.json composer.lock* /var/www/
+RUN composer install --no-interaction --optimize-autoloader --no-dev --no-scripts --ignore-platform-reqs
+
+# 5. Copy the rest of the application
 COPY . /var/www
 
-# 7. Install Laravel production dependencies
+# Re-run composer to trigger post-install scripts now that full app is present
 RUN composer install --no-interaction --optimize-autoloader --no-dev --ignore-platform-reqs
 
-# 8. Compile your Inertia.js / React / Vite front-end assets
-RUN npm install && npm run build
+# 6. Bring in the built front-end assets from the assets stage
+COPY --from=assets /app/public/build /var/www/public/build
 
-# 9. Copy your production Nginx routing layout
+# 7. Nginx config
 COPY ./nginx.conf /etc/nginx/sites-available/default
+RUN ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default \
+    && rm -f /etc/nginx/sites-enabled/default.bak 2>/dev/null || true
 
+# 8. Permissions
 RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
 
 EXPOSE 80
 
-# 10. Run database updates and start web services
+# 9. Run database migrations and start web services
 CMD php artisan migrate --force && service nginx start && php-fpm
