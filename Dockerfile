@@ -43,44 +43,42 @@
 
 FROM php:8.4-fpm
 
-# Fix: Force refresh packages and install standard OS requirements
+# 1. Install standard OS dependencies
 RUN apt-get update && apt-get install -y \
     git curl libpng-dev libonig-dev libxml2-dev libzip-dev zip unzip nginx
 
-# Fix: Cleanly install fully compatible Node.js 20 & NPM using a direct binary extraction path
-RUN curl -fsSL https://nodejs.org | tar -xz --strip-components=1 -C /usr/local
+# 2. Fix: Download the official Node.js archive file directly to disk FIRST, then extract it cleanly
+RUN curl -fsSL -o /tmp/node.tar.gz https://nodejs.org \
+    && tar -xzf /tmp/node.tar.gz --strip-components=1 -C /usr/local \
+    && rm /tmp/node.tar.gz
 
-# Clear package list caches to keep image sizes small
+# 3. Clean up apt package tables
 RUN apt-get clean && rm -rf /var/lib/lists/*
 
-# Install native PHP data management extensions (including Zip for backups)
+# 4. Install PHP extensions needed for Laravel and ZipArchive backups
 RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip
 
-# Fetch the global Composer manager tool
+# 5. Bring in Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Target the container application space
 WORKDIR /var/www
 
-# Copy composer maps first to leverage Docker cache rules
+# 6. Copy files and leverage Docker layer cache for dependencies
 COPY composer.json composer.lock* /var/www/
-
-# Copy codebase into the container environment
 COPY . /var/www
 
-# Install production-optimized PHP dependencies
+# 7. Install Laravel production dependencies
 RUN composer install --no-interaction --optimize-autoloader --no-dev --ignore-platform-reqs
 
-# Fix: Now successfully runs with completely native, readable Node links!
+# 8. Compile your Inertia.js / React / Vite front-end assets
 RUN npm install && npm run build
 
-# Apply production server routing rules
+# 9. Copy your production Nginx routing layout
 COPY ./nginx.conf /etc/nginx/sites-available/default
 
-# Reassign internal application path ownerships
 RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
 
 EXPOSE 80
 
-# Execute necessary database migrations and spin up background services
+# 10. Run database updates and start web services
 CMD php artisan migrate --force && service nginx start && php-fpm
