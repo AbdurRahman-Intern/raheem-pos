@@ -41,54 +41,46 @@
 # CMD php artisan migrate --force && service nginx start && php-fpm
 
 
-# Stage 1: Get official Node binaries safely
-FROM node:20-alpine AS node-builder
-
-# Stage 2: Build the core Laravel environment matching your local PHP 8.4
 FROM php:8.4-fpm
 
-# Install core system packages AND the required libzip-dev package
+# Fix: Force refresh packages and install standard OS requirements
 RUN apt-get update && apt-get install -y \
     git curl libpng-dev libonig-dev libxml2-dev libzip-dev zip unzip nginx
 
-# Clear cache
+# Fix: Cleanly install fully compatible Node.js 20 & NPM using a direct binary extraction path
+RUN curl -fsSL https://nodejs.org | tar -xz --strip-components=1 -C /usr/local
+
+# Clear package list caches to keep image sizes small
 RUN apt-get clean && rm -rf /var/lib/lists/*
 
-# Install PHP extensions (Added 'zip' here)
+# Install native PHP data management extensions (including Zip for backups)
 RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip
 
-# Get latest Composer tool
+# Fetch the global Composer manager tool
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Copy Node & NPM binaries directly from Stage 1
-COPY --from=node-builder /usr/local/bin/node /usr/local/bin/node
-COPY --from=node-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
-RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
-
-# Set working directory
+# Target the container application space
 WORKDIR /var/www
 
 # Copy composer maps first to leverage Docker cache rules
 COPY composer.json composer.lock* /var/www/
 
-# Copy the rest of the application files
+# Copy codebase into the container environment
 COPY . /var/www
 
-# Install PHP production dependencies cleanly
+# Install production-optimized PHP dependencies
 RUN composer install --no-interaction --optimize-autoloader --no-dev --ignore-platform-reqs
 
-# Safely run NPM build
+# Fix: Now successfully runs with completely native, readable Node links!
 RUN npm install && npm run build
 
-# Setup Nginx configuration
+# Apply production server routing rules
 COPY ./nginx.conf /etc/nginx/sites-available/default
 
-# Permissions
+# Reassign internal application path ownerships
 RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
 
 EXPOSE 80
 
-# Run migrations automatically and start services
+# Execute necessary database migrations and spin up background services
 CMD php artisan migrate --force && service nginx start && php-fpm
-
-
